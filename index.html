@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05060b">
+<title>重邮天协 · 雾都之上，我们收听星光</title>
+<meta name="description" content="重庆邮电大学天文爱好者协会。在银河里找到太阳系，点亮每一颗行星，看看今晚的重庆能看到什么。">
+<meta property="og:title" content="重邮天协 · 雾都之上，我们收听星光">
+<meta property="og:description" content="移动光标扫描银河，捕获太阳系，点亮任何一颗行星。">
+<meta property="og:type" content="website">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <canvas id="c-galaxy" class="stage__canvas" aria-hidden="true"></canvas>
+  <div class="stage__blur" id="stage-blur">
+    <canvas id="c-system" class="stage__canvas" aria-hidden="true"></canvas>
+  </div>
+</div>
+
+<div class="lens" id="lens" aria-hidden="true"><i></i></div>
+
+<header class="topbar">
+  <a class="mark" href="#/" data-nav="galaxy">
+    <span class="mark__cn">重邮天协</span>
+  </a>
+  <nav class="nav" aria-label="主导航">
+    <a href="#/system" data-nav="system">太阳系</a>
+    <a href="#/society" data-nav="society">协会</a>
+    <a href="#/society" data-nav="society" data-scroll="join">加入</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <!-- ── 银河 ─────────────────────────────────────────────── -->
+  <section class="view view--galaxy is-active" id="v-galaxy" data-view="galaxy">
+    <div class="hero">
+      <h1 class="hero__title">雾都之上，<br>我们收听星光</h1>
+      <p class="hero__lead">重庆邮电大学天文爱好者协会。移动光标扫描银河的旋臂，捕获那颗不起眼的恒星，再点亮你想看的任何一颗行星。</p>
+      <div class="hero__act">
+        <a class="btn" href="#/system" data-nav="system">直接进入太阳系</a>
+      </div>
+    </div>
+
+    <div class="scan" id="scan">
+      <p class="scan__cap">信号强度</p>
+      <p class="scan__val"><span id="scan-pct">00</span><i>%</i></p>
+      <div class="scan__meter" id="scan-meter" aria-hidden="true"></div>
+      <p class="scan__hint" id="scan-hint">移动光标，扫描旋臂</p>
+    </div>
+  </section>
+
+  <!-- ── 太阳系 ───────────────────────────────────────────── -->
+  <section class="view view--system" id="v-system" data-view="system">
+    <div class="labels" id="labels"></div>
+
+    <div class="frame" id="frame" hidden aria-hidden="true">
+      <i class="frame__c frame__c--tl"></i>
+      <i class="frame__c frame__c--tr"></i>
+      <i class="frame__c frame__c--bl"></i>
+      <i class="frame__c frame__c--br"></i>
+      <i class="frame__tick frame__tick--l"></i>
+      <i class="frame__tick frame__tick--r"></i>
+    </div>
+
+    <aside class="pick" id="pick" hidden>
+      <p class="pick__name" id="pick-name"></p>
+      <p class="pick__latin" id="pick-latin"></p>
+      <dl class="pick__facts" id="pick-facts"></dl>
+      <p class="pick__go" id="pick-go">滚轮推进</p>
+    </aside>
+
+    <div class="systools">
+      <p class="systools__hint" id="sys-hint">点击行星锁定 · 滚轮推进 · 拖动旋转视角</p>
+      <button class="btn btn--quiet" type="button" id="sys-reset">重置视角</button>
+    </div>
+
+    <div class="scrim" id="scrim" aria-hidden="true"></div>
+  </section>
+
+  <!-- ── 行星详情 ─────────────────────────────────────────── -->
+  <section class="view view--body" id="v-body" data-view="body">
+    <div class="bodystage" id="bodystage">
+      <canvas id="c-body" aria-hidden="true"></canvas>
+      <p class="bodystage__hint">拖动可旋转</p>
+    </div>
+    <div class="bodydoc" id="bodydoc"></div>
+  </section>
+
+  <!-- ── 协会 ─────────────────────────────────────────────── -->
+  <section class="view view--society" id="v-society" data-view="society">
+    <article class="doc">
+
+      <header class="doc__hero">
+        <div class="doc__heroText">
+          <h1>在雾都，<br>等一个晴夜</h1>
+          <p class="doc__heroSub">重庆邮电大学天文爱好者协会</p>
+          <p class="doc__heroLead">重庆的年均日照时数只有约 1,200 小时，是全国最少的地区之一。一年里能看清银河的夜晚，两只手数得过来。所以我们把每一个晴夜都当成节日过。</p>
+        </div>
+        <figure class="doc__heroFig">
+          <img src="assets/photos/perseids.jpg" alt="英仙座流星雨之夜，一个人站在山脊上，身后是横贯天空的银河。" loading="eager" width="1800" height="1201">
+          <figcaption>英仙座流星雨 · 摄影 Giles Laurent · CC BY-SA 4.0</figcaption>
+        </figure>
+      </header>
+
+      <section class="doc__sec doc__sec--wide">
+        <h2>为什么是重庆</h2>
+        <div class="cols">
+          <p>低日照、高湿度、常年不散的雾，山城的每一层空气都在跟星光作对。可也正因为如此，这里的人对晴夜有一种别处没有的珍惜——中午看到云缝里透出蓝色，晚上八点就有人在群里问「今晚出不出」。</p>
+          <p>重邮在南山之巅，海拔约 500 米。往南走二十公里是金佛山，再往东是武隆的仙女山。城区里只能看月亮和大行星，想看银河，就得往山里跑——这件事本身也成了协会活动的一部分。</p>
+        </div>
+      </section>
+
+      <section class="doc__sec">
+        <h2>我们做什么</h2>
+        <ol class="acts">
+          <li class="act">
+            <p class="act__name">路边天文</p>
+            <p class="act__text">每月一次，把望远镜搬到春华广场。排队的多半是第一次看土星的人，他们的第一句话通常是一声「哇」——这声音我们听了十年也不腻。</p>
+          </li>
+          <li class="act">
+            <p class="act__name">深空摄影</p>
+            <p class="act__text">一台赤道仪、一台改了冷冻的相机、三十张五分钟的曝光，再加几个小时的对齐叠加。成品是一个模糊的星系，过程是一整夜的耐心。</p>
+          </li>
+          <li class="act">
+            <p class="act__name">流星雨守夜</p>
+            <p class="act__text">每年八月英仙座、十二月双子座，我们包车去仙女山。裹睡袋躺在草地上，一晚上许几十个愿，多数人凌晨三点就睡着了。</p>
+          </li>
+          <li class="act">
+            <p class="act__name">梅西耶马拉松</p>
+            <p class="act__text">从日落到日出，一夜之间跑完 110 个深空天体。它考验的不是设备，是体力、星桥法和运气。至今协会最好成绩是 87 个。</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="doc__sec" id="tonight">
+        <h2>今晚的天</h2>
+        <p class="doc__secLead">下面这一屏不是写死的：打开页面的那一刻，程序用 JPL 的近似轨道根数现算了一遍。时间取重庆（北纬 29.56°），可见标准为「天文昏影结束后、地平高度高于 10°」。</p>
+        <div class="sky" id="sky">
+          <div class="sky__load">正在计算…</div>
+        </div>
+      </section>
+
+      <section class="doc__sec">
+        <h2>去哪儿看</h2>
+        <div class="cols">
+          <p>光污染是我们唯一无法用设备克服的敌人。刚进协会的人总想买更大的口径，我们一般先劝他买一张去山里的车票。</p>
+          <ul class="sites" id="sites">
+            <li><span class="sites__n">南山</span><span class="sites__d">校门口出发 20 分钟</span><span class="sites__b">Bortle 7</span><span class="sites__t">应急用。只适合月亮、金星、木星这类目标。</span></li>
+            <li><span class="sites__n">缙云山</span><span class="sites__d">1 小时车程</span><span class="sites__b">Bortle 5</span><span class="sites__t">能看清亮的深空天体，银河勉强可辨。</span></li>
+            <li><span class="sites__n">金佛山</span><span class="sites__d">2.5 小时车程</span><span class="sites__b">Bortle 4</span><span class="sites__t">银河清晰，是我们日常出勤的主力观测点。</span></li>
+            <li><span class="sites__n">仙女山</span><span class="sites__d">3.5 小时车程</span><span class="sites__b">Bortle 3</span><span class="sites__t">年度守夜地。要过夜，要提前订房，要认命地熬夜。</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="doc__sec">
+        <h2>影像</h2>
+        <p class="doc__secLead">下面每一张都来自公开授权图库，署名在图片下方。它们记录的不是我们自己的作品，而是我们想看到的东西。</p>
+        <div class="gal">
+          <figure class="gal__i gal__i--tall">
+            <img src="assets/photos/corona.jpg" alt="日全食时露出的日冕，呈放射状向外延伸。" loading="lazy" width="1600" height="1183">
+            <figcaption>日全食的日冕 · Luc Viatour · CC BY-SA 4.0</figcaption>
+          </figure>
+          <figure class="gal__i">
+            <img src="assets/photos/star-trails.jpg" alt="朝北极星方向的拱极星轨，星点拉成同心圆弧。" loading="lazy" width="1600" height="1060">
+            <figcaption>拱极星轨 · Heyzeuss · CC BY-SA 3.0</figcaption>
+          </figure>
+          <figure class="gal__i">
+            <img src="assets/photos/andromeda.jpg" alt="仙女座大星系 M31，中心明亮，旋臂上有一条暗尘带。" loading="lazy" width="1400" height="933">
+            <figcaption>仙女座大星系 M31 · Astrophoto Andy · CC0</figcaption>
+          </figure>
+          <figure class="gal__i">
+            <img src="assets/photos/city-night.jpg" alt="重庆夜景，两江交汇处的城市灯火。" loading="lazy" width="1600" height="1066">
+            <figcaption>重庆 · Maple Doctor · CC BY-SA 4.0</figcaption>
+          </figure>
+          <figure class="gal__i gal__i--wide">
+            <img src="assets/photos/campus-gate.jpg" alt="重庆邮电大学崇文门。" loading="lazy" width="1600" height="1200">
+            <figcaption>重邮崇文门 · Junyi Lou · CC BY-SA 4.0</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="doc__sec doc__sec--join" id="join">
+        <h2>加入我们</h2>
+        <div class="join">
+          <dl class="join__kv">
+            <div><dt>招新</dt><dd>每年九月，百团大战的 47 号摊位</dd></div>
+            <div><dt>例会</dt><dd>每周四 20:00，图书馆前广场（晴天）</dd></div>
+            <div><dt>群</dt><dd>QQ 群 000000000</dd></div>
+            <div><dt>器材</dt><dd>协会现有 130 mm 反射镜两台、C8 一台、10×50 双筒四台</dd></div>
+          </dl>
+          <div class="join__cta">
+            <p>不需要任何基础，也不需要自己带设备。你只需要在一个晴天的晚上，出现在广场上。</p>
+            <a class="btn" href="mailto:astro@cqupt.edu.cn">写信给我们</a>
+          </div>
+        </div>
+      </section>
+
+      <footer class="doc__foot">
+        <p class="doc__footName">重邮天协</p>
+        <p class="doc__footLine">重庆邮电大学天文爱好者协会 · 南山</p>
+        <p class="doc__footCredit">
+          行星表面与太阳影像来自 <a href="https://www.solarsystemscope.com/textures/" rel="noopener">Solar System Scope</a>（CC BY 4.0）与 NASA/JPL 公开数据；页面照片来自 Wikimedia Commons，作者与授权见各图下方。天体位置由页内脚本按 JPL 近似轨道根数实时计算，精度约 1–5 角分。
+        </p>
+      </footer>
+
+    </article>
+  </section>
+
+</main>
+
+<div class="warp" id="warp" aria-hidden="true"></div>
+<div class="veil" id="veil" aria-hidden="true"></div>
+
+<noscript>
+  <div class="noscript">这个页面用 WebGL 画银河与行星。请开启 JavaScript，或直接访问 <a href="#/society">协会页面</a> 阅读文字内容。</div>
+</noscript>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
