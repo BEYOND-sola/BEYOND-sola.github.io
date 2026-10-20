@@ -36,6 +36,7 @@ let galaxy = null
 let system = null
 let planet = null
 let route = ''
+let pendingJump = null
 let reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 const HINT_IDLE = matchMedia('(pointer: coarse)').matches
@@ -318,8 +319,12 @@ function setView(name) {
   el.stageBlur.classList.toggle('is-on', name === 'system' || name === 'body')
   el.stageBlur.classList.toggle('is-backdrop', name === 'body')
 
+  // 只有真正的导航项才标记「当前页」；「加入」是一条页内跳转，不该跟着亮
+  const currentHref = '#/' + (name === 'body' ? 'system' : name)
   $$('.nav a').forEach((a) => {
-    a.classList.toggle('is-current', a.getAttribute('href') === '#/' + (name === 'body' ? 'system' : name))
+    const isJump = a.hasAttribute('data-scroll')
+    a.classList.toggle('is-current', !isJump && a.getAttribute('href') === currentHref)
+    if (isJump) a.setAttribute('aria-current', 'false')
   })
 }
 
@@ -364,6 +369,11 @@ function render() {
     renderSky()
     armReveals()
     document.title = '重庆邮电大学天文爱好者协会 · 在雾都等一个晴夜'
+    if (pendingJump) {
+      const id = pendingJump
+      pendingJump = null
+      requestAnimationFrame(() => requestAnimationFrame(() => jumpTo(id)))
+    }
   }
   if (!same) el.frame.hidden = true
 }
@@ -404,4 +414,30 @@ document.addEventListener('click', (e) => {
   if (!href || !href.startsWith('#/')) return
   e.preventDefault()
   softNav(href)
+})
+
+// 导航里的页内跳转（加入 → #join）
+// 跨页面跳转时不能靠定时器赌渲染时机，记一个待办，等协会页真正渲染完再滚
+function jumpTo(id) {
+  const target = document.getElementById(id)
+  if (!target) return
+  // 用即时跳转而不是平滑滚动：跨页面时目标在几千像素之外，平滑滚动要跑两秒，
+  // 中途还可能被下一次布局打断，落点不准。
+  target.scrollIntoView({ behavior: 'auto', block: 'start' })
+  target.setAttribute('tabindex', '-1')
+  target.focus({ preventScroll: true })
+}
+
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('[data-scroll]')
+  if (!a) return
+  e.preventDefault()
+  const id = a.dataset.scroll
+  if (!document.getElementById(id)) return
+  if (parse().name === 'society') {
+    jumpTo(id)
+  } else {
+    pendingJump = id
+    location.hash = '#/society'
+  }
 })
