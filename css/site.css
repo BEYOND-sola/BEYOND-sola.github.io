@@ -662,7 +662,9 @@ main { position: relative; z-index: 10; }
 .gal__i--tall img { aspect-ratio: 3 / 2; }
 
 /* 加入 */
-.doc__sec--join { padding-bottom: clamp(80px, 12vh, 140px); }
+.doc__sec--join { scroll-margin-top: 96px; padding-bottom: clamp(80px, 12vh, 140px); }
+/* 页内跳转把焦点移到小节上，留焦点但不画整块的焦点框 */
+.doc__sec[tabindex="-1"]:focus { outline: none; }
 .join {
   margin-top: clamp(28px, 4vh, 44px);
   display: grid; grid-template-columns: 1.2fr 0.9fr; gap: clamp(30px, 5vw, 80px);
