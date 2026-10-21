@@ -687,12 +687,20 @@ main { position: relative; z-index: 10; }
 .join__cta p { color: var(--ink-70); line-height: 1.9; max-width: 24em; }
 .join__cta .btn { margin-top: 26px; }
 .join__addr {
-  margin-top: 14px;
+  display: inline-block;
+  margin-top: 12px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
   font-family: var(--font-serif);
   font-size: 13px; letter-spacing: 0.02em;
   color: var(--ink-48);
+  cursor: pointer;
   user-select: all;
+  transition: color 220ms var(--ease);
 }
+.join__addr:hover { color: var(--ink); }
+.join__addr.is-copied { color: var(--amber); }
 
 /* 页脚 */
 .doc__foot {

@@ -394,19 +394,44 @@ function render() {
 
 window.addEventListener('hashchange', render)
 
-// 「写信给我们」
-// 桌面端直接打开 QQ 邮箱的写信页；触屏端保留 mailto——手机上 mailto 会被 QQ 邮箱 App 接走。
-// 没有脚本时链接本来就是 mailto，照常可用；按钮下面也印了地址，随时能手动复制。
-// 地址只在 index.html 里写一处（href 和下面那行小字），这里从 href 里读，避免两处不同步。
+// 复制邮箱地址。「用 QQ 邮箱写信」只能打开 QQ 邮箱首页（那几个深链接参数腾讯早就丢了），
+// 收件人得靠这里一键复制；剪贴板 API 在非 https 或老浏览器上不可用，退回 execCommand。
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* 落到下面的兜底 */ }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;top:-1000px;left:0;opacity:0'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch { return false }
+}
+
 function wireMail() {
-  const btn = $('#mail-btn')
-  if (!btn || matchMedia('(pointer: coarse)').matches) return
-  const addr = (btn.getAttribute('href') || '').replace(/^mailto:/i, '').split('?')[0].trim()
-  if (!addr) return
-  // QQ 邮箱的「邮件分享」入口：登录状态下会带着收件人打开写信页
-  btn.href = `https://mail.qq.com/cgi-bin/qm_share?t=qm_mailme&email=${addr}`
-  btn.target = '_blank'
-  btn.rel = 'noopener'
+  const btn = document.getElementById('copy-mail')
+  if (!btn) return
+  const addr = btn.dataset.addr || btn.textContent.trim()
+  const label = btn.textContent
+  btn.addEventListener('click', async () => {
+    btn.textContent = '复制中…'
+    const ok = await copyText(addr)
+    btn.textContent = ok ? '已复制，去粘贴收件人' : '请长按选中复制'
+    btn.classList.add('is-copied')
+    setTimeout(() => {
+      btn.textContent = label
+      btn.classList.remove('is-copied')
+    }, 1900)
+  })
 }
 
 let started = false
