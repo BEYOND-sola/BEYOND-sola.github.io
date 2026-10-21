@@ -686,6 +686,13 @@ main { position: relative; z-index: 10; }
 .join__kv dd { font-size: 15.5px; color: var(--ink-70); line-height: 1.7; }
 .join__cta p { color: var(--ink-70); line-height: 1.9; max-width: 24em; }
 .join__cta .btn { margin-top: 26px; }
+.join__addr {
+  margin-top: 14px;
+  font-family: var(--font-serif);
+  font-size: 13px; letter-spacing: 0.02em;
+  color: var(--ink-48);
+  user-select: all;
+}
 
 /* 页脚 */
 .doc__foot {

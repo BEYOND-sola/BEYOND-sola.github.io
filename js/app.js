@@ -394,11 +394,27 @@ function render() {
 
 window.addEventListener('hashchange', render)
 
+// 「写信给我们」
+// 桌面端直接打开 QQ 邮箱的写信页；触屏端保留 mailto——手机上 mailto 会被 QQ 邮箱 App 接走。
+// 没有脚本时链接本来就是 mailto，照常可用；按钮下面也印了地址，随时能手动复制。
+// 地址只在 index.html 里写一处（href 和下面那行小字），这里从 href 里读，避免两处不同步。
+function wireMail() {
+  const btn = $('#mail-btn')
+  if (!btn || matchMedia('(pointer: coarse)').matches) return
+  const addr = (btn.getAttribute('href') || '').replace(/^mailto:/i, '').split('?')[0].trim()
+  if (!addr) return
+  // QQ 邮箱的「邮件分享」入口：登录状态下会带着收件人打开写信页
+  btn.href = `https://mail.qq.com/cgi-bin/qm_share?t=qm_mailme&email=${addr}`
+  btn.target = '_blank'
+  btn.rel = 'noopener'
+}
+
 let started = false
 function boot() {
   if (started) return
   started = true
   if (!location.hash) history.replaceState(null, '', '#/')
+  wireMail()
   render()
 }
 
