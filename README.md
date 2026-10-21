@@ -30,7 +30,7 @@ node tools/serve.mjs . 4173
 1. 新建仓库，把**除 `.dsh/`、`tools/`、`.shots/` 之外**的文件推到仓库根目录。
    `.gitignore` 已经把这几个目录排除掉了，直接 `git add .` 就行。
 2. 仓库 Settings → Pages → **Source: Deploy from a branch**，分支选 `main`，目录选 `/ (root)`。
-3. 等一两分钟，访问 `https://<你的用户名>.github.io/<仓库名>/`。
+3. 等一两分钟，访问 `https://beyond-sola.github.io/`。
 
 几点需要注意：
 
