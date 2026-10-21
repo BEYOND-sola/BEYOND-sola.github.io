@@ -111,18 +111,13 @@ body[data-route="galaxy"] #c-galaxy { pointer-events: auto; }
 }
 .lens.is-on { opacity: 1; }
 
-/* 过渡闪光 */
-.warp {
-  position: fixed; inset: 0; z-index: 60; pointer-events: none;
+/* 进入太阳系时，首页的文案与读数先退场，只留星系 */
+body.is-warping .hero,
+body.is-warping .scan,
+body.is-warping .topbar {
   opacity: 0;
-  /* taste-skill-ignore：镜头俯冲时的一次曝光闪光，属于转场而不是背景 */
-  background: radial-gradient(circle at 50% 50%, #fff6e6 0%, #f0c68a 22%, rgba(226, 167, 92, 0) 62%); /* taste-skill-ignore */
-}
-.warp.is-hot { animation: warp 900ms var(--ease) forwards; }
-@keyframes warp {
-  0%   { opacity: 0; }
-  22%  { opacity: 1; }
-  100% { opacity: 0; }
+  transition: opacity 480ms var(--ease);
+  pointer-events: none;
 }
 
 /* 场景之间的黑场 */
@@ -133,6 +128,19 @@ body[data-route="galaxy"] #c-galaxy { pointer-events: auto; }
   transition: opacity 380ms var(--ease);
 }
 .veil.is-on { opacity: 1; }
+
+/* 协会页把太阳系当整页底图：只轻压一层暗幕，保证长文可读，同时留得住轨道结构 */
+body[data-route="society"] .stage::after {
+  content: "";
+  position: absolute; inset: 0;
+  /* 中性暗幕，压在星场图像上保证正文可读；taste-skill-ignore */
+  background: linear-gradient(to bottom, rgba(5, 6, 11, 0.72) 0%, rgba(5, 6, 11, 0.48) 30%, rgba(5, 6, 11, 0.62) 100%); /* taste-skill-ignore */
+  pointer-events: none;
+}
+body[data-route="society"] .stage__blur.is-on.is-backdrop {
+  filter: blur(13px) saturate(1.06) brightness(0.92);
+  transform: scale(1.06);
+}
 
 /* 页面暗角：让文字在星场上可读（照片上的遮罩，是本项目唯一允许的渐变用法） */
 body::after {

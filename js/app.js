@@ -14,7 +14,6 @@ const el = {
   planet: $('#c-body'),
   stageBlur: $('#stage-blur'),
   lens: $('#lens'),
-  warp: $('#warp'),
   veil: $('#veil'),
   labels: $('#labels'),
   frame: $('#frame'),
@@ -104,18 +103,19 @@ function ensureGalaxy() {
 }
 
 let transitioning = false
+let galaxyStopTimer = 0
+// 银河 → 太阳系：镜头俯冲 + 粒子重组 + 交叉淡入，不再用黑场
 async function enterSolarSystem() {
   if (transitioning) return
+  if (route !== 'galaxy') { location.hash = '#/system'; return }
   transitioning = true
+  document.body.classList.add('is-warping')
   el.lens.classList.remove('is-on')
   el.scan.style.opacity = '0'
   try {
-    await galaxy.dive()
-  } catch { /* noop */ }
-  el.warp.classList.add('is-hot')
-  await wait(340)
+    await ensureGalaxy().warpToSystem()
+  } catch { /* 动画失败也要能进去 */ }
   location.hash = '#/system'
-  setTimeout(() => el.warp.classList.remove('is-hot'), 500)
   transitioning = false
 }
 
@@ -311,13 +311,14 @@ function parse() {
 
 function setView(name) {
   $$('.view').forEach((v) => v.classList.toggle('is-active', v.dataset.view === name))
+  document.body.classList.remove('is-warping')
   document.body.dataset.route = name
   document.body.classList.toggle('is-locked', name === 'galaxy' || name === 'system')
   if (name !== 'galaxy') el.lens.classList.remove('is-on')
 
   el.galaxy.classList.toggle('is-on', name === 'galaxy')
-  el.stageBlur.classList.toggle('is-on', name === 'system' || name === 'body')
-  el.stageBlur.classList.toggle('is-backdrop', name === 'body')
+  el.stageBlur.classList.toggle('is-on', name === 'system' || name === 'body' || name === 'society')
+  el.stageBlur.classList.toggle('is-backdrop', name === 'body' || name === 'society')
 
   // 只有真正的导航项才标记「当前页」；「加入」是一条页内跳转，不该跟着亮
   const currentHref = '#/' + (name === 'body' ? 'system' : name)
@@ -336,6 +337,7 @@ function render() {
   setView(r.name)
 
   if (r.name === 'galaxy') {
+    clearTimeout(galaxyStopTimer)
     const g = ensureGalaxy()
     g.rewind?.()
     g.start()
@@ -345,8 +347,11 @@ function render() {
     requestAnimationFrame(() => el.galaxy.classList.add('is-on'))
     document.title = '重邮天协 · 雾都之上，我们收听星光'
   } else if (r.name === 'system') {
-    galaxy?.stop()
+    // 银河的定格帧要留在下面陪跑完交叉淡入（1.2s），再停掉
+    clearTimeout(galaxyStopTimer)
+    galaxyStopTimer = setTimeout(() => galaxy?.stop(), 1500)
     const s = ensureSystem()
+    s.setBackdrop(false)
     s.setDive(0)
     s.start()
     planet?.stop()
@@ -355,7 +360,9 @@ function render() {
     document.title = '太阳系 · 重邮天协'
   } else if (r.name === 'body') {
     galaxy?.stop()
-    ensureSystem().start()
+    const s = ensureSystem()
+    s.setBackdrop(true)
+    s.start()
     const p = ensurePlanet()
     p.show(r.id)
     p.start()
@@ -363,8 +370,11 @@ function render() {
     window.scrollTo(0, 0)
   } else if (r.name === 'society') {
     galaxy?.stop()
-    system?.stop()
     planet?.stop()
+    // 整页背景是当前状态的太阳系，失焦后当底图；只当底图时降一半帧率
+    const s = ensureSystem()
+    s.setBackdrop(true)
+    s.start()
     window.scrollTo(0, 0)
     renderSky()
     armReveals()
@@ -416,16 +426,55 @@ document.addEventListener('click', (e) => {
   softNav(href)
 })
 
+// 「直接进入太阳系」按钮走和点光点一样的动画
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('[data-warp]')
+  if (!a) return
+  e.preventDefault()
+  enterSolarSystem()
+})
+
 // 导航里的页内跳转（加入 → #join）
 // 跨页面跳转时不能靠定时器赌渲染时机，记一个待办，等协会页真正渲染完再滚
+let scrollRaf = 0
+
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3) }
+
+// 先快后慢地滚到某个元素顶部（顶栏留 96px）
+function animateScrollToEl(el, duration) {
+  cancelAnimationFrame(scrollRaf)
+  const startY = window.scrollY
+  const goalY = Math.max(0, startY + el.getBoundingClientRect().top - 96)
+  const dist = goalY - startY
+  if (Math.abs(dist) < 2) return
+  const t0 = performance.now()
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / duration)
+    window.scrollTo(0, startY + dist * easeOutCubic(k))
+    if (k < 1) {
+      scrollRaf = requestAnimationFrame(step)
+    } else {
+      // 动画期间页面高度可能变（图片懒加载、面板重算），最后按元素的当前位置再校一次
+      window.scrollTo(0, Math.max(0, window.scrollY + el.getBoundingClientRect().top - 96))
+    }
+  }
+  scrollRaf = requestAnimationFrame(step)
+}
+
 function jumpTo(id) {
   const target = document.getElementById(id)
   if (!target) return
-  // 用即时跳转而不是平滑滚动：跨页面时目标在几千像素之外，平滑滚动要跑两秒，
-  // 中途还可能被下一次布局打断，落点不准。
-  target.scrollIntoView({ behavior: 'auto', block: 'start' })
-  target.setAttribute('tabindex', '-1')
-  target.focus({ preventScroll: true })
+  if (reduced) {
+    window.scrollTo(0, Math.max(0, window.scrollY + target.getBoundingClientRect().top - 96))
+    return
+  }
+  const distance = Math.abs(target.getBoundingClientRect().top - 96)
+  animateScrollToEl(target, Math.min(1700, 620 + distance * 0.16))
+}
+
+// 用户自己滚了就不要再跟它抢
+for (const ev of ['wheel', 'touchstart', 'pointerdown']) {
+  window.addEventListener(ev, () => cancelAnimationFrame(scrollRaf), { passive: true })
 }
 
 document.addEventListener('click', (e) => {

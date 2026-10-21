@@ -26,6 +26,26 @@ const OUTER = orbitRadius(39.48) + 1.5
 const PHI_DEFAULT = 40 * DEG
 const FOV = 42
 
+// 太阳系的取景参数。银河那边要复现同一个机位，用来做粒子重组，所以导出。
+export const SYSTEM_LAYOUT = {
+  fov: FOV,
+  outer: OUTER,
+  sunRadius: SUN_R,
+  theta: Math.PI * 0.34,
+  scale: 0.021, // 太阳系单位 → 银河场景单位
+  phiFor(aspect) { return aspect < 0.85 ? 62 * DEG : PHI_DEFAULT },
+  fit(aspect) {
+    const a = Math.max(0.35, aspect)
+    const tanH = Math.tan((FOV * DEG) / 2)
+    const needH = OUTER / (tanH * a)
+    const needV = (OUTER * Math.sin(this.phiFor(a))) / tanH
+    return Math.max(needH, needV) * 1.16
+  },
+  // 系统场景里相机的注视点比原点略低（给底部提示留位置），换算成银河单位
+  lookY(dist) { return -dist * 0.05 },
+  orbitRadius,
+}
+
 const TEX = {
   mercury: 'mercury.jpg', venus: 'venus.jpg', earth: 'earth.jpg', mars: 'mars.jpg',
   jupiter: 'jupiter.jpg', saturn: 'saturn.jpg', uranus: 'uranus.jpg', neptune: 'neptune.jpg',
@@ -296,6 +316,7 @@ export function createSystem(canvas, ui, opts = {}) {
     theta: Math.PI * 0.34,
     phi: PHI,
     autoSpin: true,
+    backdrop: false,
   }
 
   // ── 标签 ────────────────────────────────────────────────────────────────
@@ -413,11 +434,7 @@ export function createSystem(canvas, ui, opts = {}) {
   function computeFit() {
     const h = canvas.clientHeight || 900
     const w = canvas.clientWidth || 1440
-    const aspect = Math.max(0.35, w / h)
-    const tanH = Math.tan((FOV * DEG) / 2)
-    const needH = OUTER / (tanH * aspect)
-    const needV = (OUTER * Math.sin(PHI)) / tanH
-    state.fitR = Math.max(needH, needV) * 1.16
+    state.fitR = SYSTEM_LAYOUT.fit(w / h)
   }
 
   function updateCamera() {
@@ -544,10 +561,24 @@ export function createSystem(canvas, ui, opts = {}) {
 
   let last = 0
   let raf = 0
+  let lastBackdrop = 0
   function loop(now) {
     if (!state.running) return
     const dt = Math.min(0.06, (now - last) / 1000 || 0.016)
     last = now
+    if (state.backdrop) {
+      // 只当模糊底图时降到约 5 fps。整屏 blur 每帧重算很贵，降频后滚动才跟得住手；
+      // 反正 13–22px 的高斯模糊下，谁都看不出这是 5 fps。
+      if (now - lastBackdrop < 190) { raf = requestAnimationFrame(loop); return }
+      const d = Math.min(0.6, (now - lastBackdrop) / 1000)
+      lastBackdrop = now
+      if (!state.dragging && state.autoSpin && !reduced) state.theta += d * 0.010
+      step(d)
+      updateCamera()
+      renderer.render(scene, camera)
+      raf = requestAnimationFrame(loop)
+      return
+    }
     if (!state.dragging && state.autoSpin && !reduced) state.theta += dt * 0.010
     step(dt)
     updateCamera()
@@ -563,7 +594,8 @@ export function createSystem(canvas, ui, opts = {}) {
   function resize() {
     const w = canvas.clientWidth || window.innerWidth
     const h = canvas.clientHeight || window.innerHeight
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    // 只当模糊底图时用 1x 分辨率：反正要过整屏高斯模糊，省下的是每次重算的填充率
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, state.backdrop ? 1 : 2))
     renderer.setSize(w, h, false)
     camera.aspect = w / h
     camera.updateProjectionMatrix()
@@ -633,7 +665,8 @@ export function createSystem(canvas, ui, opts = {}) {
   }
 
   function onWheel(e) {
-    if (!state.running) return
+    // 只当模糊底图时绝不能拦滚轮，否则协会页和天体页整页滚不动
+    if (!state.running || state.backdrop) return
     e.preventDefault()
     const dir = Math.sign(e.deltaY)
     if (state.selected) {
@@ -655,6 +688,12 @@ export function createSystem(canvas, ui, opts = {}) {
     state, scene, camera, renderer, bodies,
     get selected() { return state.selected },
     get dive() { return state.dive },
+    setBackdrop(v) {
+      const next = !!v
+      if (next === state.backdrop) return
+      state.backdrop = next
+      if (state.running) resize()
+    },
     enterNow() { if (state.selected) opts.onEnter?.(state.selected) },
     setDive(v) { state.dive = Math.max(0, Math.min(1, v)); opts.onProgress?.(state.dive) },
   }
