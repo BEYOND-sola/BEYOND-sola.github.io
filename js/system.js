@@ -33,6 +33,12 @@ export const SYSTEM_LAYOUT = {
   sunRadius: SUN_R,
   theta: Math.PI * 0.34,
   scale: 0.021, // 太阳系单位 → 银河场景单位
+  // 各行星的初始轨道相位。必须是确定的：银河侧的粒子要把「行星」摆到同样的角度上，
+  // 两组画布交接的那一帧才不会有错位。
+  startAngles: {
+    mercury: 0.62, venus: 2.42, earth: 4.38, mars: 1.52, jupiter: 3.28,
+    saturn: 5.62, uranus: 0.18, neptune: 2.88, pluto: 4.92,
+  },
   phiFor(aspect) { return aspect < 0.85 ? 62 * DEG : PHI_DEFAULT },
   fit(aspect) {
     const a = Math.max(0.35, aspect)
@@ -184,7 +190,7 @@ export function createSystem(canvas, ui, opts = {}) {
     const orbit = makeOrbit(orbR)
 
     const holder = new THREE.Group()
-    holder.rotation.y = Math.random() * TAU
+    holder.rotation.y = SYSTEM_LAYOUT.startAngles[data.id] ?? Math.random() * TAU
     scene.add(holder)
 
     const tilt = new THREE.Group()

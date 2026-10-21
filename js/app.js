@@ -115,7 +115,11 @@ async function enterSolarSystem() {
   try {
     await ensureGalaxy().warpToSystem()
   } catch { /* 动画失败也要能进去 */ }
+  // 交接：太阳系画布瞬间出现，不做淡入。粒子已经在那里聚成了每颗行星的光斑，
+  // 画布一出现，行星就直接长在光斑里；底下的粒子云随后淡出，接上的是「凝」而不是「切」。
+  el.stageBlur.classList.add('no-fade')
   location.hash = '#/system'
+  setTimeout(() => el.stageBlur.classList.remove('no-fade'), 400)
   transitioning = false
 }
 

@@ -1,10 +1,12 @@
 // 银河。一个由二十万个点构成的旋涡星系，缓慢自转；
 // 太阳系是其中一颗会闪的、几乎看不见的星。
-// 点进去时不做黑场切页：镜头俯冲到那颗星，再拉回到与太阳系完全相同的机位，
-// 同时把所有粒子从星系坐标插值到行星轨道坐标——于是粒子"重组"成了太阳系。
+//
+// 点进去时不做黑场切页：镜头先以那颗光点为锚，把它推到画面正中并放大，
+// 再拉回到与太阳系完全相同的机位；同期所有粒子从星系坐标插值到行星轨道坐标，
+// 最后每个行星位置上会聚出一团光斑——画布交接的那一帧，行星就长在这些光斑里。
 import * as THREE from '../assets/vendor/three.module.js'
 import { BODIES } from './bodies.js'
-import { SYSTEM_LAYOUT } from './system.js'
+import { SYSTEM_LAYOUT, bodyRadius } from './system.js'
 
 const TAU = Math.PI * 2
 const K = SYSTEM_LAYOUT.scale
@@ -45,15 +47,15 @@ const VERT = /* glsl */ `
   varying vec3 vColor;
   varying float vAlpha;
   void main() {
-    float p = clamp((uProgress - aDelay * 0.30) / 0.70, 0.0, 1.0);
+    float p = clamp((uProgress - aDelay * 0.26) / 0.74, 0.0, 1.0);
     p = p * p * (3.0 - 2.0 * p);
     vec3 pos = mix(position, aTarget, p);
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = max(0.7, aSize * mix(1.0, 1.3, p) * uScale / max(0.6, -mv.z));
-    vec3 warm = mix(aColor, vec3(1.0, 0.955, 0.86), 0.75);
+    gl_PointSize = max(0.7, aSize * mix(1.0, 1.25, p) * uScale / max(0.6, -mv.z));
+    vec3 warm = mix(aColor, vec3(1.0, 0.96, 0.88), 0.72);
     vColor = mix(aColor, warm, p);
-    vAlpha = aAlpha * mix(1.0, 1.9, p);
+    vAlpha = aAlpha * mix(1.0, 1.85, p);
   }
 `
 
@@ -120,7 +122,13 @@ export function createGalaxy(canvas, opts = {}) {
   world.rotation.z = 0.13
   scene.add(world)
 
-  // ── 太阳系靶图：粒子最终要落到这些位置上 ────────────────────────────────
+  // ── 太阳系信标：整个转场的锚点 ──────────────────────────────────────────
+  const beaconR = 0.615
+  const beaconTheta = 2 * (TAU / ARMS) + SWIRL * Math.pow(beaconR, 0.62) + 0.06
+  const beaconPos = new THREE.Vector3(beaconR * Math.cos(beaconTheta), 0.004, beaconR * Math.sin(beaconTheta))
+
+  // ── 重组靶图：以信标为太阳，粒子最终落到这些位置 ────────────────────────
+  const boost = mobile ? 1.9 : 1
   const orbitRs = BODIES
     .filter((b) => b.visual.aAU > 0 && b.id !== 'moon')
     .map((b) => SYSTEM_LAYOUT.orbitRadius(b.visual.aAU) * K)
@@ -130,29 +138,58 @@ export function createGalaxy(canvas, opts = {}) {
   const kupOut = SYSTEM_LAYOUT.orbitRadius(48) * K
   const sunR = SYSTEM_LAYOUT.sunRadius * K
 
+  // 每颗行星在终点位置上的「光斑」：位置与尺寸都按系统场景算，
+  // 这样交接那一帧，光斑正好包住那颗行星。
+  const beads = BODIES
+    .filter((b) => b.visual.aAU > 0 && b.id !== 'moon')
+    .map((b) => {
+      const ang = SYSTEM_LAYOUT.startAngles[b.id] ?? 0
+      const orb = SYSTEM_LAYOUT.orbitRadius(b.visual.aAU) * K
+      return {
+        x: Math.cos(ang) * orb,
+        z: -Math.sin(ang) * orb,
+        rad: bodyRadius(b.visual.radiusKm, boost) * K * 1.28,
+      }
+    })
+
   function solarTarget() {
     const rr = Math.random()
-    if (rr < 0.10) {
-      // 太阳：一个扁球状的致密核心
+    if (rr < 0.08) {
+      // 太阳
       const u = Math.pow(Math.random(), 2.2) * sunR * 0.92
       const a = Math.random() * TAU
       const b = Math.acos(2 * Math.random() - 1)
-      return [u * Math.sin(b) * Math.cos(a), u * Math.cos(b) * 0.34, u * Math.sin(b) * Math.sin(a)]
+      return [
+        beaconPos.x + u * Math.sin(b) * Math.cos(a),
+        beaconPos.y + u * Math.cos(b) * 0.34,
+        beaconPos.z + u * Math.sin(b) * Math.sin(a),
+      ]
     }
-    if (rr < 0.72) {
+    if (rr < 0.24) {
+      // 行星光斑：这一团在画布交接时就是那颗行星
+      const bd = beads[(Math.random() * beads.length) | 0]
+      const u = Math.pow(Math.random(), 1.15) * bd.rad
+      const a = Math.random() * TAU
+      return [
+        beaconPos.x + bd.x + Math.cos(a) * u,
+        beaconPos.y + gauss() * bd.rad * 0.3,
+        beaconPos.z + bd.z + Math.sin(a) * u,
+      ]
+    }
+    if (rr < 0.66) {
       const orb = orbitRs[(Math.random() * orbitRs.length) | 0]
       const a = Math.random() * TAU
       const rad = orb * (1 + gauss() * 0.004)
-      return [Math.cos(a) * rad, gauss() * 0.0012, Math.sin(a) * rad]
+      return [beaconPos.x + Math.cos(a) * rad, beaconPos.y + gauss() * 0.0012, beaconPos.z - Math.sin(a) * rad]
     }
-    if (rr < 0.93) {
+    if (rr < 0.86) {
       const rad = beltIn + Math.random() * (beltOut - beltIn)
       const a = Math.random() * TAU
-      return [Math.cos(a) * rad, gauss() * 0.0035, Math.sin(a) * rad]
+      return [beaconPos.x + Math.cos(a) * rad, beaconPos.y + gauss() * 0.0035, beaconPos.z - Math.sin(a) * rad]
     }
     const rad = kupIn + Math.random() * (kupOut - kupIn)
     const a = Math.random() * TAU
-    return [Math.cos(a) * rad, gauss() * 0.006, Math.sin(a) * rad]
+    return [beaconPos.x + Math.cos(a) * rad, beaconPos.y + gauss() * 0.006, beaconPos.z - Math.sin(a) * rad]
   }
 
   // ── 星系粒子 ────────────────────────────────────────────────────────────
@@ -334,10 +371,11 @@ export function createGalaxy(canvas, opts = {}) {
   halo.renderOrder = 3
   world.add(halo)
 
-  // 重组完成时点亮的太阳辉光
+  // 重组完成时点在信标上的太阳辉光（信标就是太阳）
   const flare = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: coreTex, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true, opacity: 0 }),
   )
+  flare.position.copy(beaconPos)
   flare.scale.setScalar(sunR * 16)
   flare.renderOrder = 5
   world.add(flare)
@@ -393,11 +431,7 @@ export function createGalaxy(canvas, opts = {}) {
     scene.add(bgStars)
   }
 
-  // ── 太阳系信标 ──────────────────────────────────────────────────────────
-  const beaconR = 0.615
-  const beaconTheta = 2 * (TAU / ARMS) + SWIRL * Math.pow(beaconR, 0.62) + 0.06
-  const beaconPos = new THREE.Vector3(beaconR * Math.cos(beaconTheta), 0.004, beaconR * Math.sin(beaconTheta))
-
+  // ── 信标本体 ────────────────────────────────────────────────────────────
   const beaconCore = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: glowTexture('rgba(255,255,255,1)', 'rgba(255,225,180,0.5)', 128), blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, transparent: true }),
   )
@@ -493,7 +527,7 @@ export function createGalaxy(canvas, opts = {}) {
     if (!state.running) return
     if (state.diving) { raf = requestAnimationFrame(loop); return }
     if (state.frozen) {
-      // 重组完成的定格帧要持续渲染，否则 WebGL 缓冲会被回收，交叉淡入时看到黑屏
+      // 交接后定格帧要持续渲染：WebGL 缓冲一旦停止绘制就会被回收，那一帧会闪黑
       renderer.render(scene, camera)
       raf = requestAnimationFrame(loop)
       return
@@ -534,17 +568,17 @@ export function createGalaxy(canvas, opts = {}) {
     for (const m of mists) m.sprite.material.opacity = m.baseOpacity * (1 - p)
     beaconCore.material.opacity = 0.8 * (1 - p)
     beaconGlow.material.opacity = state.signal * state.signal * 0.9 * (1 - p)
-    flare.material.opacity = Math.pow(p, 1.6)
-    flare.scale.setScalar(sunR * (10 + 12 * p))
+    flare.material.opacity = Math.pow(p, 1.4) * 0.9
+    flare.scale.setScalar(sunR * (8 + 14 * p))
   }
 
-  // 镜头俯冲 → 拉回系统机位，同时粒子重组
+  // 以信标为锚的放大 → 拉回系统机位；同期粒子重组
   function warpToSystem() {
     if (state.warping) return Promise.resolve()
     state.warping = true
     state.diving = true
 
-    const dur = reduced ? 500 : 2600
+    const dur = reduced ? 540 : 3200
     const t0 = performance.now()
 
     const W = canvas.clientWidth || 1440
@@ -554,53 +588,63 @@ export function createGalaxy(canvas, opts = {}) {
     const phi = SYSTEM_LAYOUT.phiFor(aspect)
     const th = SYSTEM_LAYOUT.theta
 
+    const anchor = beaconPos.clone()
     const from = camera.position.clone()
     const fromFov = camera.fov
-    const divePos = new THREE.Vector3(
-      beaconPos.x * 0.5,
-      beaconPos.y + 0.30,
-      beaconPos.z * 0.5 + 0.5,
-    )
-    const endPos = new THREE.Vector3(
+    const lookFrom = lookBase.clone()
+
+    // 停在离信标 0.45 处：光点在正中，周围星点被拉成放射状
+    const approach = from.clone().sub(anchor).normalize()
+    const zoomEnd = anchor.clone().add(approach.clone().multiplyScalar(0.45))
+
+    const endCam = anchor.clone().add(new THREE.Vector3(
       Math.cos(phi) * Math.cos(th) * dist,
       Math.sin(phi) * dist,
       Math.cos(phi) * Math.sin(th) * dist,
-    )
-    const lookEnd = new THREE.Vector3(0, SYSTEM_LAYOUT.lookY(dist), 0)
+    ))
+    const endLook = anchor.clone().add(new THREE.Vector3(0, SYSTEM_LAYOUT.lookY(dist), 0))
 
     const rotY0 = world.rotation.y
     const rotZ0 = world.rotation.z
 
-    const a = new THREE.Vector3()
-    const b = new THREE.Vector3()
+    // 时间轴：先放大到光点，再拉回；粒子后半段才重组
+    const U_ZOOM = 0.46
+    const U_ROT = 0.34
+    const U_M0 = 0.44
+    const U_M1 = 0.92
+
+    const camPos = new THREE.Vector3()
+    const lookPos = new THREE.Vector3()
+    const liveAnchor = new THREE.Vector3()
 
     return new Promise((resolve) => {
       const step = () => {
         const u = Math.min(1, (performance.now() - t0) / dur)
 
-        // 相机：先俯冲到信标，再拉回到系统机位
-        if (u < 0.34) {
-          a.copy(from).lerp(divePos, smooth(u / 0.34))
+        world.updateMatrixWorld()
+        liveAnchor.copy(beaconPos).applyMatrix4(world.matrixWorld)
+
+        if (u < U_ZOOM) {
+          camPos.copy(from).lerp(zoomEnd, smooth(u / U_ZOOM))
+          lookPos.copy(lookFrom).lerp(liveAnchor, smooth(clamp01(u / (U_ZOOM * 0.82))))
         } else {
-          a.copy(divePos).lerp(endPos, smooth((u - 0.34) / 0.66))
+          const k = smooth((u - U_ZOOM) / (1 - U_ZOOM))
+          camPos.copy(zoomEnd).lerp(endCam, k)
+          lookPos.copy(liveAnchor).lerp(endLook, k)
         }
-        camera.position.copy(a)
-
-        // 注视点：从银河中心过渡到系统机位的注视点
-        b.copy(lookBase).lerp(lookEnd, smooth(clamp01((u - 0.16) / 0.76)))
-        camera.lookAt(b)
-        camera.fov = fromFov + (SYSTEM_LAYOUT.fov - fromFov) * smooth(clamp01((u - 0.30) / 0.45))
+        camera.position.copy(camPos)
+        camera.lookAt(lookPos)
+        // 不要在这里碰 camera.rotation.z：lookAt 的四元数里已经含了正确的滚转，
+        // 再把欧拉角的 z 清零等于给镜头加一道滚转，粒子云会和行星差出十几度。
+        camera.fov = fromFov + (SYSTEM_LAYOUT.fov - fromFov) * smooth(clamp01((u - U_ZOOM) / 0.4))
         camera.updateProjectionMatrix()
-        camera.rotation.z = 0
 
-        // 世界朝向归零，让重组终点的方位与系统场景一致
-        const rz = smooth(clamp01((u - 0.26) / 0.58))
+        // 世界朝向归零：终点方位必须和系统场景完全一致，交接帧才不会错位
+        const rz = smooth(clamp01(u / U_ROT))
         world.rotation.z = rotZ0 * (1 - rz)
         world.rotation.y = rotY0 * (1 - rz)
 
-        // 粒子重组
-        const p = smooth(clamp01((u - 0.28) / 0.60))
-        setProgress(p)
+        setProgress(smooth(clamp01((u - U_M0) / (U_M1 - U_M0))))
 
         renderer.render(scene, camera)
         if (u < 1) requestAnimationFrame(step)
@@ -640,7 +684,6 @@ export function createGalaxy(canvas, opts = {}) {
     start, stop, resize, setPointer, warpToSystem, rewind,
     get signal() { return state.signal },
     get hot() { return state.hot },
-    beaconScreen,
-    state,
+    beaconScreen, state, camera, world, beaconPos,
   }
 }
