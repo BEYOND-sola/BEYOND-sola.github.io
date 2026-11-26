@@ -2,16 +2,20 @@
 // 太阳系是其中一颗会闪的、几乎看不见的星。
 //
 // 点进去时不做黑场切页：镜头先以那颗光点为锚，把它推到画面正中并放大，
-// 再拉回到与太阳系完全相同的机位；同期所有粒子从星系坐标插值到行星轨道坐标，
-// 最后每个行星位置上会聚出一团光斑——画布交接的那一帧，行星就长在这些光斑里。
+// 再沿弧线拉回太阳系的机位。粒子汇聚成轨道和光斑，行星在同一个位置逐渐显现。
 import * as THREE from '../assets/vendor/three.module.js'
 import { BODIES } from './bodies.js'
 import { SYSTEM_LAYOUT, bodyRadius } from './system.js'
 
 const TAU = Math.PI * 2
 const K = SYSTEM_LAYOUT.scale
+const WARP_MS = 3200
+const LANDING = 0.85
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
-const smooth = (t) => t * t * (3 - 2 * t)
+function easeBetween(start, end, value) {
+  const t = clamp01((value - start) / (end - start))
+  return t * t * t * (t * (t * 6 - 15) + 10)
+}
 
 function gauss() {
   let u = 0, v = 0
@@ -44,6 +48,7 @@ const VERT = /* glsl */ `
   attribute float aDelay;
   uniform float uScale;
   uniform float uProgress;
+  uniform float uFocus;
   varying vec3 vColor;
   varying float vAlpha;
   void main() {
@@ -52,10 +57,11 @@ const VERT = /* glsl */ `
     vec3 pos = mix(position, aTarget, p);
     vec4 mv = modelViewMatrix * vec4(pos, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = max(0.7, aSize * mix(1.0, 1.25, p) * uScale / max(0.6, -mv.z));
+    float size = aSize * mix(1.0, 0.82, p) * uScale / max(0.6, -mv.z);
+    gl_PointSize = max(0.7, mix(size, min(size, 6.0 * uScale), uFocus));
     vec3 warm = mix(aColor, vec3(1.0, 0.96, 0.88), 0.72);
     vColor = mix(aColor, warm, p);
-    vAlpha = aAlpha * mix(1.0, 1.85, p);
+    vAlpha = aAlpha * mix(1.0, 1.12, p);
   }
 `
 
@@ -74,7 +80,7 @@ const FRAG = /* glsl */ `
 
 // 不参与重组、只是随进度淡出的层（尘埃带、背景星）
 const FRAG_FADE = /* glsl */ `
-  uniform float uProgress;
+  uniform float uFade;
   varying vec3 vColor;
   varying float vAlpha;
   void main() {
@@ -83,7 +89,7 @@ const FRAG_FADE = /* glsl */ `
     if (r > 1.0) discard;
     float a = 1.0 - r;
     a = a * a * a;
-    gl_FragColor = vec4(vColor, a * vAlpha * (1.0 - uProgress));
+    gl_FragColor = vec4(vColor, a * vAlpha * (1.0 - uFade));
   }
 `
 
@@ -108,7 +114,7 @@ export function createGalaxy(canvas, opts = {}) {
     alpha: false,
     powerPreference: 'high-performance',
   })
-  renderer.setClearColor(0x04050a, 1)
+  renderer.setClearColor(0x05060b, 1)
 
   const scene = new THREE.Scene()
   const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 60)
@@ -297,7 +303,7 @@ export function createGalaxy(canvas, opts = {}) {
   geo.setAttribute('aDelay', new THREE.BufferAttribute(dly, 1))
 
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uScale: { value: 1 }, uProgress: { value: 0 } },
+    uniforms: { uScale: { value: 1 }, uProgress: { value: 0 }, uFocus: { value: 0 } },
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
@@ -311,7 +317,7 @@ export function createGalaxy(canvas, opts = {}) {
 
   function fadeMaterial() {
     return new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: 1 }, uProgress: { value: 0 } },
+      uniforms: { uScale: { value: 1 }, uProgress: { value: 0 }, uFocus: { value: 0 }, uFade: { value: 0 } },
       vertexShader: VERT,
       fragmentShader: FRAG_FADE,
       transparent: true,
@@ -455,9 +461,6 @@ export function createGalaxy(canvas, opts = {}) {
     signal: 0,
     hot: false,
     running: false,
-    diving: false,
-    warping: false,
-    frozen: false,
     t: 0,
     rot: 0,
     progress: 0,
@@ -465,6 +468,9 @@ export function createGalaxy(canvas, opts = {}) {
 
   const beaconScreen = { x: 0, y: 0, visible: false }
   const v3 = new THREE.Vector3()
+  let warp = null
+  let roll = 0
+  let viewport = 0
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth
@@ -473,12 +479,13 @@ export function createGalaxy(canvas, opts = {}) {
     renderer.setPixelRatio(dpr)
     renderer.setSize(w, h, false)
     camera.aspect = w / h
-    camera.fov = w / h < 0.85 ? 58 : 42
+    if (!warp) camera.fov = camera.aspect < 0.85 ? 58 : 42
     camera.updateProjectionMatrix()
     const scale = (h * dpr) / 780
     mat.uniforms.uScale.value = 3.3 * scale
     bgMat.uniforms.uScale.value = 2.4 * scale
     dustMat.uniforms.uScale.value = 3.3 * scale
+    viewport++
   }
 
   function update(dt) {
@@ -494,7 +501,9 @@ export function createGalaxy(canvas, opts = {}) {
     const py = state.pointer.y
     camera.position.set(baseCam.x + px * 0.16, baseCam.y + py * 0.10, baseCam.z)
     camera.lookAt(lookBase)
-    camera.rotation.z = px * 0.02
+    roll = px * 0.02
+    camera.rotateZ(roll)
+    camera.updateMatrixWorld()
 
     const pulse = 0.5 + 0.5 * Math.sin(state.t * 2.1)
     const pulse2 = Math.pow(pulse, 3)
@@ -505,6 +514,7 @@ export function createGalaxy(canvas, opts = {}) {
 
     coreSprite.material.opacity = 0.55 + 0.05 * Math.sin(state.t * 0.7)
 
+    world.updateMatrixWorld()
     v3.copy(beaconPos).applyMatrix4(world.matrixWorld).project(camera)
     beaconScreen.x = (v3.x * 0.5 + 0.5) * canvas.clientWidth
     beaconScreen.y = (-v3.y * 0.5 + 0.5) * canvas.clientHeight
@@ -525,17 +535,21 @@ export function createGalaxy(canvas, opts = {}) {
   let raf = 0
   function loop(now) {
     if (!state.running) return
-    if (state.diving) { raf = requestAnimationFrame(loop); return }
-    if (state.frozen) {
-      // 交接后定格帧要持续渲染：WebGL 缓冲一旦停止绘制就会被回收，那一帧会闪黑
-      renderer.render(scene, camera)
-      raf = requestAnimationFrame(loop)
-      return
-    }
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016)
     last = now
-    update(dt)
-    renderer.render(scene, camera)
+    if (warp) {
+      if (!warp.finished) {
+        try {
+          animateWarp(now, dt)
+        } catch (error) {
+          warp.finished = true
+          warp.reject(error)
+        }
+      }
+    } else {
+      update(dt)
+      renderer.render(scene, camera)
+    }
     raf = requestAnimationFrame(loop)
   }
 
@@ -550,6 +564,7 @@ export function createGalaxy(canvas, opts = {}) {
   function stop() {
     state.running = false
     cancelAnimationFrame(raf)
+    cancelWarp()
   }
 
   function setPointer(nx, ny, cx, cy) {
@@ -561,109 +576,108 @@ export function createGalaxy(canvas, opts = {}) {
   function setProgress(p) {
     state.progress = p
     mat.uniforms.uProgress.value = p
-    bgMat.uniforms.uProgress.value = p
-    dustMat.uniforms.uProgress.value = p
-    coreSprite.material.opacity = 0.6 * (1 - p)
-    halo.material.opacity = 0.20 * (1 - p)
-    for (const m of mists) m.sprite.material.opacity = m.baseOpacity * (1 - p)
-    beaconCore.material.opacity = 0.8 * (1 - p)
-    beaconGlow.material.opacity = state.signal * state.signal * 0.9 * (1 - p)
-    flare.material.opacity = Math.pow(p, 1.4) * 0.9
-    flare.scale.setScalar(sunR * (8 + 14 * p))
   }
 
-  // 以信标为锚的放大 → 拉回系统机位；同期粒子重组
-  function warpToSystem() {
-    if (state.warping) return Promise.resolve()
-    state.warping = true
-    state.diving = true
+  const liveAnchor = new THREE.Vector3()
+  const endDirection = new THREE.Vector3()
+  const lookAt = new THREE.Vector3()
 
-    const dur = reduced ? 540 : 3200
-    const t0 = performance.now()
-
-    const W = canvas.clientWidth || 1440
-    const H = canvas.clientHeight || 1000
-    const aspect = W / H
-    const dist = SYSTEM_LAYOUT.fit(aspect) * K
-    const phi = SYSTEM_LAYOUT.phiFor(aspect)
-    const th = SYSTEM_LAYOUT.theta
-
-    const anchor = beaconPos.clone()
-    const from = camera.position.clone()
-    const fromFov = camera.fov
-    const lookFrom = lookBase.clone()
-
-    // 停在离信标 0.45 处：光点在正中，周围星点被拉成放射状
-    const approach = from.clone().sub(anchor).normalize()
-    const zoomEnd = anchor.clone().add(approach.clone().multiplyScalar(0.45))
-
-    const endCam = anchor.clone().add(new THREE.Vector3(
-      Math.cos(phi) * Math.cos(th) * dist,
-      Math.sin(phi) * dist,
-      Math.cos(phi) * Math.sin(th) * dist,
-    ))
-    const endLook = anchor.clone().add(new THREE.Vector3(0, SYSTEM_LAYOUT.lookY(dist), 0))
-
-    const rotY0 = world.rotation.y
-    const rotZ0 = world.rotation.z
-
-    // 时间轴：先放大到光点，再拉回；粒子后半段才重组
-    const U_ZOOM = 0.46
-    const U_ROT = 0.34
-    const U_M0 = 0.44
-    const U_M1 = 0.92
-
-    const camPos = new THREE.Vector3()
-    const lookPos = new THREE.Vector3()
-    const liveAnchor = new THREE.Vector3()
-
-    return new Promise((resolve) => {
-      const step = () => {
-        const u = Math.min(1, (performance.now() - t0) / dur)
-
-        world.updateMatrixWorld()
-        liveAnchor.copy(beaconPos).applyMatrix4(world.matrixWorld)
-
-        if (u < U_ZOOM) {
-          camPos.copy(from).lerp(zoomEnd, smooth(u / U_ZOOM))
-          lookPos.copy(lookFrom).lerp(liveAnchor, smooth(clamp01(u / (U_ZOOM * 0.82))))
-        } else {
-          const k = smooth((u - U_ZOOM) / (1 - U_ZOOM))
-          camPos.copy(zoomEnd).lerp(endCam, k)
-          lookPos.copy(liveAnchor).lerp(endLook, k)
-        }
-        camera.position.copy(camPos)
-        camera.lookAt(lookPos)
-        // 不要在这里碰 camera.rotation.z：lookAt 的四元数里已经含了正确的滚转，
-        // 再把欧拉角的 z 清零等于给镜头加一道滚转，粒子云会和行星差出十几度。
-        camera.fov = fromFov + (SYSTEM_LAYOUT.fov - fromFov) * smooth(clamp01((u - U_ZOOM) / 0.4))
-        camera.updateProjectionMatrix()
-
-        // 世界朝向归零：终点方位必须和系统场景完全一致，交接帧才不会错位
-        const rz = smooth(clamp01(u / U_ROT))
-        world.rotation.z = rotZ0 * (1 - rz)
-        world.rotation.y = rotY0 * (1 - rz)
-
-        setProgress(smooth(clamp01((u - U_M0) / (U_M1 - U_M0))))
-
-        renderer.render(scene, camera)
-        if (u < 1) requestAnimationFrame(step)
-        else {
-          state.rot = 0
-          state.warping = false
-          state.diving = false
-          state.frozen = true
-          resolve()
-        }
+  function warpToSystem(paintSystem) {
+    world.updateMatrixWorld()
+    liveAnchor.copy(beaconPos).applyMatrix4(world.matrixWorld)
+    const offset = camera.position.clone().sub(liveAnchor)
+    return new Promise((resolve, reject) => {
+      warp = {
+        resolve, reject, paintSystem, start: performance.now(), finished: false,
+        viewport: -1, landed: false, blendTime: 0,
+        direction: offset.clone().normalize(),
+        distance: offset.length(),
+        aim: lookBase.clone().sub(liveAnchor),
+        fov: camera.fov,
+        roll,
+        yaw: Math.atan2(Math.sin(world.rotation.y), Math.cos(world.rotation.y)),
+        tilt: world.rotation.z,
+        core: coreSprite.material.opacity,
+        beacon: beaconCore.material.opacity,
+        glow: beaconGlow.material.opacity,
       }
-      requestAnimationFrame(step)
     })
   }
 
+  function animateWarp(now, dt) {
+    const u = Math.min(LANDING, (now - warp.start) / WARP_MS)
+    const redraw = warp.viewport !== viewport
+    if (!warp.landed || redraw) {
+      drawWarpFrame(u)
+      warp.viewport = viewport
+      if (u < LANDING) return
+    }
+    if (!warp.landed) {
+      warp.paintSystem(0, true)
+      warp.landed = true
+      return
+    }
+
+    // 对齐后只混合两张静止画面。限制单帧步长，避免卡顿时跳过整个交接。
+    warp.blendTime += dt * 1000
+    const blend = easeBetween(0, WARP_MS * (1 - LANDING), warp.blendTime)
+    warp.paintSystem(blend, redraw)
+    if (blend === 1) {
+      warp.finished = true
+      warp.resolve(true)
+    }
+  }
+
+  function drawWarpFrame(u) {
+    const approach = easeBetween(0, 0.39, u)
+    const reveal = easeBetween(0.39, LANDING, u)
+    const pan = easeBetween(0.31, LANDING, u)
+    const level = 1 - easeBetween(0.05, 0.79, u)
+    world.rotation.y = warp.yaw * level
+    world.rotation.z = warp.tilt * level
+    world.updateMatrixWorld()
+    liveAnchor.copy(beaconPos).applyMatrix4(world.matrixWorld)
+
+    const dist = SYSTEM_LAYOUT.fit(camera.aspect) * K
+    const phi = SYSTEM_LAYOUT.phiFor(camera.aspect)
+    const nearest = Math.max(0.68, warp.distance * 0.36, dist * 0.23)
+    const distance = THREE.MathUtils.lerp(warp.distance, nearest, approach) * Math.pow(dist / nearest, reveal)
+    SYSTEM_LAYOUT.cameraOffset(endDirection, 1, phi)
+    camera.position.copy(warp.direction).lerp(endDirection, pan).normalize()
+      .multiplyScalar(distance).add(liveAnchor)
+    const center = easeBetween(0, 0.36, u)
+    lookAt.copy(liveAnchor).addScaledVector(warp.aim, 1 - center)
+    lookAt.y += SYSTEM_LAYOUT.lookY(dist) * reveal
+    camera.lookAt(lookAt)
+    camera.rotateZ(warp.roll * (1 - center))
+    camera.fov = THREE.MathUtils.lerp(warp.fov, SYSTEM_LAYOUT.fov, pan)
+    camera.updateProjectionMatrix()
+
+    const morph = easeBetween(0.29, LANDING, u)
+    const fade = easeBetween(0.18, 0.71, u)
+    setProgress(morph)
+    mat.uniforms.uFocus.value = easeBetween(0.04, 0.3, u)
+    dustMat.uniforms.uFocus.value = mat.uniforms.uFocus.value
+    dustMat.uniforms.uFade.value = fade
+    bgMat.uniforms.uFade.value = 0.65 * easeBetween(0.28, LANDING, u)
+    coreSprite.material.opacity = warp.core * (1 - fade)
+    halo.material.opacity = 0.2 * (1 - fade)
+    for (const m of mists) m.sprite.material.opacity = m.baseOpacity * (1 - fade)
+    beaconCore.material.opacity = warp.beacon * (1 - morph)
+    beaconGlow.material.opacity = warp.glow * (1 - morph)
+    flare.material.opacity = morph * 0.58
+    flare.scale.setScalar(sunR * (6 + 6 * morph))
+
+    renderer.render(scene, camera)
+  }
+
+  function cancelWarp() {
+    warp?.resolve(false)
+    warp = null
+  }
+
   function rewind() {
-    state.diving = false
-    state.warping = false
-    state.frozen = false
+    cancelWarp()
     state.rot = 0
     world.rotation.y = 0
     world.rotation.z = 0.13
@@ -672,8 +686,11 @@ export function createGalaxy(canvas, opts = {}) {
     camera.updateProjectionMatrix()
     camera.lookAt(lookBase)
     setProgress(0)
-    beaconCore.scale.setScalar(0.052)
-    coreSprite.material.opacity = 0.6
+    mat.uniforms.uFocus.value = 0
+    dustMat.uniforms.uFocus.value = 0
+    dustMat.uniforms.uFade.value = 0
+    bgMat.uniforms.uFade.value = 0
+    flare.material.opacity = 0
     halo.material.opacity = 0.20
     for (const m of mists) m.sprite.material.opacity = m.baseOpacity
   }

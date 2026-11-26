@@ -36,7 +36,9 @@ let system = null
 let planet = null
 let route = ''
 let pendingJump = null
-let reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+let warp = null
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)')
+const reduced = motionPreference.matches
 
 const HINT_IDLE = matchMedia('(pointer: coarse)').matches
   ? '点按行星锁定 · 点卡片进入'
@@ -83,7 +85,7 @@ function ensureGalaxy() {
   el.galaxy.style.cursor = 'none'
 
   window.addEventListener('pointermove', (e) => {
-    if (!galaxy || route !== 'galaxy') return
+    if (!galaxy || route !== 'galaxy' || warp) return
     const nx = (e.clientX / window.innerWidth) * 2 - 1
     const ny = (e.clientY / window.innerHeight) * 2 - 1
     galaxy.setPointer(nx, ny, e.clientX, e.clientY)
@@ -102,25 +104,27 @@ function ensureGalaxy() {
   return galaxy
 }
 
-let transitioning = false
-let galaxyStopTimer = 0
-// 银河 → 太阳系：镜头俯冲 + 粒子重组 + 交叉淡入，不再用黑场
 async function enterSolarSystem() {
-  if (transitioning) return
-  if (route !== 'galaxy') { location.hash = '#/system'; return }
-  transitioning = true
+  if (warp || route !== 'galaxy') return
+  const transition = { hash: location.hash }
+  warp = transition
   document.body.classList.add('is-warping')
   el.lens.classList.remove('is-on')
-  el.scan.style.opacity = '0'
+  let fromWarp = false
   try {
-    await ensureGalaxy().warpToSystem()
+    const s = ensureSystem()
+    s.prepareWarp()
+    const paint = (blend, redraw) => {
+      if (redraw) s.paintWarpFrame()
+      el.stageBlur.style.opacity = String(blend)
+    }
+    if (motionPreference.matches) paint(1, true)
+    else if (!await ensureGalaxy().warpToSystem(paint)) return
+    fromWarp = true
   } catch { /* 动画失败也要能进去 */ }
-  // 交接：太阳系画布瞬间出现，不做淡入。粒子已经在那里聚成了每颗行星的光斑，
-  // 画布一出现，行星就直接长在光斑里；底下的粒子云随后淡出，接上的是「凝」而不是「切」。
-  el.stageBlur.classList.add('no-fade')
-  location.hash = '#/system'
-  setTimeout(() => el.stageBlur.classList.remove('no-fade'), 400)
-  transitioning = false
+  if (warp !== transition || location.hash !== transition.hash) return
+  history.pushState(null, '', '#/system')
+  render({ fromWarp })
 }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -313,8 +317,11 @@ function parse() {
   return { name: 'galaxy' }
 }
 
-function setView(name) {
-  $$('.view').forEach((v) => v.classList.toggle('is-active', v.dataset.view === name))
+function setView(name, fromWarp) {
+  $$('.view').forEach((v) => {
+    v.classList.toggle('is-active', v.dataset.view === name)
+    v.classList.toggle('is-arriving', fromWarp && v.dataset.view === 'system')
+  })
   document.body.classList.remove('is-warping')
   document.body.dataset.route = name
   document.body.classList.toggle('is-locked', name === 'galaxy' || name === 'system')
@@ -323,6 +330,8 @@ function setView(name) {
   el.galaxy.classList.toggle('is-on', name === 'galaxy')
   el.stageBlur.classList.toggle('is-on', name === 'system' || name === 'body' || name === 'society')
   el.stageBlur.classList.toggle('is-backdrop', name === 'body' || name === 'society')
+  el.stageBlur.classList.toggle('is-arriving', fromWarp)
+  el.stageBlur.style.opacity = ''
 
   // 只有真正的导航项才标记「当前页」；「加入」是一条页内跳转，不该跟着亮
   const currentHref = '#/' + (name === 'body' ? 'system' : name)
@@ -333,31 +342,36 @@ function setView(name) {
   })
 }
 
-function render() {
+function render({ fromWarp = false } = {}) {
   const r = parse()
   if (r.name === 'body' && !BY_ID[r.id]) { location.hash = '#/system'; return }
+  warp = null
   const same = route === r.name + (r.id || '')
   route = r.name + (r.id || '')
-  setView(r.name)
+  setView(r.name, fromWarp)
 
   if (r.name === 'galaxy') {
-    clearTimeout(galaxyStopTimer)
     const g = ensureGalaxy()
-    g.rewind?.()
+    g.rewind()
     g.start()
     system?.stop()
     planet?.stop()
-    el.scan.style.opacity = ''
-    requestAnimationFrame(() => el.galaxy.classList.add('is-on'))
+    // 在首页空闲时加载贴图、预绘制场景，把第一次 WebGL 开销移出交接帧。
+    if (!system) window.requestIdleCallback?.(() => {
+      if (route !== 'galaxy' || warp || system) return
+      try {
+        const s = ensureSystem()
+        s.prepareWarp()
+        s.paintWarpFrame()
+      } catch { /* 进入时再试 */ }
+    })
     document.title = '重邮天协 · 雾都之上，我们收听星光'
   } else if (r.name === 'system') {
-    // 银河的定格帧要留在下面陪跑完交叉淡入（1.2s），再停掉
-    clearTimeout(galaxyStopTimer)
-    galaxyStopTimer = setTimeout(() => galaxy?.stop(), 1500)
+    galaxy?.stop()
     const s = ensureSystem()
     s.setBackdrop(false)
     s.setDive(0)
-    s.start()
+    s.start(fromWarp)
     planet?.stop()
     window.scrollTo(0, 0)
     el.sysHint.textContent = HINT_IDLE
@@ -392,7 +406,7 @@ function render() {
   if (!same) el.frame.hidden = true
 }
 
-window.addEventListener('hashchange', render)
+window.addEventListener('hashchange', () => render())
 
 // 复制邮箱地址。「用 QQ 邮箱写信」只能打开 QQ 邮箱首页（那几个深链接参数腾讯早就丢了），
 // 收件人得靠这里一键复制；剪贴板 API 在非 https 或老浏览器上不可用，退回 execCommand。
@@ -471,10 +485,11 @@ document.addEventListener('click', (e) => {
   softNav(href)
 })
 
-// 「直接进入太阳系」按钮走和点光点一样的动画
+// 首页的三个太阳系入口共用同一段动画。
 document.addEventListener('click', (e) => {
-  const a = e.target.closest?.('[data-warp]')
-  if (!a) return
+  const a = e.target.closest?.('[data-warp], [data-nav="system"]')
+  if (!a || route !== 'galaxy' || e.defaultPrevented || e.button !== 0 ||
+    e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
   e.preventDefault()
   enterSolarSystem()
 })

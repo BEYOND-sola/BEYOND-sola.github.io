@@ -49,6 +49,13 @@ export const SYSTEM_LAYOUT = {
   },
   // 系统场景里相机的注视点比原点略低（给底部提示留位置），换算成银河单位
   lookY(dist) { return -dist * 0.05 },
+  cameraOffset(out, dist, phi, theta = this.theta) {
+    return out.set(
+      Math.cos(phi) * Math.cos(theta) * dist,
+      Math.sin(phi) * dist,
+      Math.cos(phi) * Math.sin(theta) * dist,
+    )
+  },
   orbitRadius,
 }
 
@@ -75,8 +82,6 @@ export function createSystem(canvas, ui, opts = {}) {
   const mobile = matchMedia('(max-width: 820px)').matches
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
   const boost = mobile ? 1.9 : 1
-  // 竖屏时把视角抬高，让椭圆更「圆」，否则整条轨道会缩成一条细带
-  const PHI = (window.innerWidth / Math.max(1, window.innerHeight)) < 0.85 ? 62 * DEG : PHI_DEFAULT
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' })
   renderer.setClearColor(0x000000, 0)
@@ -94,7 +99,13 @@ export function createSystem(canvas, ui, opts = {}) {
   const texCache = new Map()
   function texture(name) {
     if (!texCache.has(name)) {
-      const t = loader.load(`assets/textures/${name}`)
+      const t = loader.load(`assets/textures/${name}`, (loaded) => {
+        if (!window.requestIdleCallback) return
+        // 逐张解码并在空闲时上传，避免交接时同一帧上传整组行星贴图。
+        loaded.image.decode().then(() => {
+          window.requestIdleCallback(() => renderer.initTexture(loaded))
+        }).catch(() => {})
+      })
       t.colorSpace = THREE.SRGBColorSpace
       t.anisotropy = 4
       texCache.set(name, t)
@@ -319,8 +330,8 @@ export function createSystem(canvas, ui, opts = {}) {
     lastY: 0,
     fitR: 100,
     zoom: 1,
-    theta: Math.PI * 0.34,
-    phi: PHI,
+    theta: SYSTEM_LAYOUT.theta,
+    phi: SYSTEM_LAYOUT.phiFor(window.innerWidth / window.innerHeight),
     autoSpin: true,
     backdrop: false,
   }
@@ -449,18 +460,15 @@ export function createSystem(canvas, ui, opts = {}) {
     // 指针视差放得很轻：这个页面是要瞄准的，镜头跟着鼠标大幅摆动会让行星从光标下逃开
     const phi = state.phi - p.y * 0.06
     const theta = state.theta + p.x * 0.05
-    camera.position.set(
-      Math.cos(phi) * Math.cos(theta) * dist,
-      Math.sin(phi) * dist,
-      Math.cos(phi) * Math.sin(theta) * dist,
-    )
+    SYSTEM_LAYOUT.cameraOffset(camera.position, dist, phi, theta)
     // 视线略微下压，把整个盘面在画面里抬高，给底部的操作提示留位置
-    const look = new THREE.Vector3(0, -state.fitR * 0.05, 0)
+    const look = new THREE.Vector3(0, SYSTEM_LAYOUT.lookY(state.fitR), 0)
     if (state.selected) {
       const w = worldOf(state.selected).clone()
       look.lerp(w, Math.min(1, state.dive * 1.2))
     }
     camera.lookAt(look)
+    camera.updateMatrixWorld()
     camera.fov = FOV + state.dive * 8
     camera.updateProjectionMatrix()
   }
@@ -608,10 +616,10 @@ export function createSystem(canvas, ui, opts = {}) {
     computeFit()
   }
 
-  function start() {
+  function start(prepared = false) {
     if (state.running) return
     state.running = true
-    resize()
+    if (!prepared) resize()
     last = performance.now()
     raf = requestAnimationFrame(loop)
   }
@@ -621,12 +629,32 @@ export function createSystem(canvas, ui, opts = {}) {
   }
 
   function reset() {
-    state.theta = Math.PI * 0.34
-    state.phi = PHI
+    state.theta = SYSTEM_LAYOUT.theta
+    state.phi = SYSTEM_LAYOUT.phiFor(camera.aspect)
     state.zoom = 1
     state.pointer.x = 0
     state.pointer.y = 0
     clear()
+  }
+
+  // 光斑的中心位置由同一组初始相位决定，每次从银河进入都用这组相位。
+  function prepareWarp() {
+    stop()
+    state.backdrop = false
+    resize()
+    reset()
+    state.hovered = null
+    state.dragging = false
+    canvas.style.cursor = 'grab'
+    for (const b of bodies) b.angle = SYSTEM_LAYOUT.startAngles[b.data.id]
+    step(0)
+  }
+
+  function paintWarpFrame() {
+    state.phi = SYSTEM_LAYOUT.phiFor(camera.aspect)
+    updateCamera()
+    updateDOM()
+    renderer.render(scene, camera)
   }
 
   // ── 输入 ────────────────────────────────────────────────────────────────
@@ -690,7 +718,7 @@ export function createSystem(canvas, ui, opts = {}) {
   window.addEventListener('resize', resize)
 
   return {
-    start, stop, resize, reset, select, clear,
+    start, stop, resize, reset, select, clear, prepareWarp, paintWarpFrame,
     state, scene, camera, renderer, bodies,
     get selected() { return state.selected },
     get dive() { return state.dive },

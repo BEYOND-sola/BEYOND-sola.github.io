@@ -86,8 +86,10 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 }
 body[data-route="system"] .stage__blur { pointer-events: auto; }
 .stage__blur.is-on { opacity: 1; }
-/* 从银河交接过来时不淡入：那一帧行星必须已经在光斑位置上 */
-.stage__blur.no-fade { transition: none; }
+body.is-warping .stage__blur,
+body[data-route="system"] .stage__blur { background-color: var(--void); }
+body.is-warping .stage__blur,
+.stage__blur.is-arriving { transition: none; }
 body[data-route="system"] #c-galaxy { transition-duration: 700ms; }
 .stage__blur.is-on.is-backdrop {
   filter: blur(22px) saturate(0.9) brightness(0.55);
@@ -114,14 +116,14 @@ body[data-route="galaxy"] #c-galaxy { pointer-events: auto; }
 }
 .lens.is-on { opacity: 1; }
 
-/* 进入太阳系时，首页的文案与读数先退场，只留星系 */
+/* 进入太阳系时，首页的文案与读数先退场 */
+.hero, .scan { transition: opacity 480ms var(--ease); }
 body.is-warping .hero,
-body.is-warping .scan,
-body.is-warping .topbar {
+body.is-warping .scan {
   opacity: 0;
-  transition: opacity 480ms var(--ease);
   pointer-events: none;
 }
+body.is-warping .hero__act { pointer-events: none; }
 
 /* 场景之间的黑场 */
 .veil {
@@ -293,6 +295,14 @@ main { position: relative; z-index: 10; }
 .scan.is-hot .scan__meter i.on { background: var(--ink); }
 
 /* ── 太阳系页 ───────────────────────────────────────────────────────────── */
+.view--system.is-arriving .labels,
+.view--system.is-arriving .systools {
+  animation: system-controls-in 420ms var(--ease) both;
+}
+@keyframes system-controls-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
 .labels { position: absolute; inset: 0; pointer-events: none; z-index: 12; }
 .lbl {
   position: absolute; left: 0; top: 0;
